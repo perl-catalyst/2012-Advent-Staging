@@ -37,7 +37,7 @@ If you don't want to write an article, but you have an idea for something intere
 * t0m (Tomas Doran)
 * teejay (Aaron James Trevena) will introduce [HTML::FormHandler](https://metacpan.org/module/HTML::FormHandler) and 
 [HTML::FormHandlerX::Form::JQueryValidator](https://metacpan.org/module/HTML::FormHandlerX::Form::JQueryValidator)
-* davewood (David Schmidt) will give short introduct of [CatalystX::Resources](https://metacpan.org/module/CatalystX::Resource
+* davewood (David Schmidt) will give short introduct of [CatalystX::Resources](https://metacpan.org/module/CatalystX::Resource)
 * dpetrov (Dimitar Petrov) will introduce how to generate new [Catalyst](http://www.catalystframework.org/) application with more sensible defaults.
 * jnap (John Napiorkowski)
 * pingup3rl (...)
