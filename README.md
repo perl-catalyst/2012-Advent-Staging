@@ -17,13 +17,15 @@ http://dev.catalystframework.org/repos/Catalyst/trunk/examples/CatalystAdvent/
 
 ## How to begin?
 
+```shell
   svn checkout http://dev.catalystframework.org/repos/Catalyst/trunk/examples/CatalystAdvent/
   cd CatalystAdvent/root/2012/pen/
+```
 
 write a draft of your article into the "pen" directory. Once you are ready with you article, just move it to CatalystAdvent/root/2012/xx.pod 
 (where xx is the day when your article will appear online).
 
-  For example: CatalystAdvent/root/2012/25.pod
+  For example: `CatalystAdvent/root/2012/25.pod`
 
 ## I don't want to write an article, but I would love to see XXX?
 
