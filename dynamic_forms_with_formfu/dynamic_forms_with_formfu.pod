@@ -1,0 +1,294 @@
+=head1 Dynamic forms with HTML::FormFu
+
+=head1 OVERVIEW
+
+Working with forms can quickly become nasty. Two very popular form handling
+libraries for Catalyst are L<HTML::FormHandler|https://metacpan.org/module/HTML::FormHandler>
+and L<HTML::FormFu|https://metacpan.org/module/HTML::FormFu>. Both have their
+pros and cons. This article shows how to use HTML::FormFu in an
+easy way for creating dynamic forms.
+
+=head1 HTML::FormFu and Catalyst
+
+=head2 What FormFu can do
+
+HTML::FormFu calls itself a form creation, rendering and validation framework.
+Usually a form is constructed from a data structure describing all of the
+form's requirements and listing all of its fields in their displayed order.
+Typically the description for a form is loaded from a config file which may
+get stored in various formats like YAML, XML or in literal Perl syntax.
+
+Static forms may be sufficient in most cases. If two users should be allowed
+to do different things or certain fields are only required under certain
+conditions, multiple forms may be required. Using a form containing the
+summary of all fields and a logic for removing or changing fields sounds like
+a solution at first.
+
+HTML::FormFu provides an API for introspecting and manipulating a form.
+As long as the required manipulations remain simple, using this API is
+easy and straight forward. If, however, the number of manipulations will
+increase or the number of forms grow, chances are high to generate
+unreadable do-always-the-same-manipulation code. Within very short time
+you end up in 2000+ line Controller-Classes mostly doing form manipulation.
+But there is an easier and more readable way.
+
+For demonstration how to use and modify forms, we will construct a
+hypothetical workflow of some entity. The entity will have a name, a comment
+and a simple workflow with the steps "create", "edit", "check" and "finish".
+Name and workflow may only get edited by administrators, regular
+users may only see these fields without editing capability.
+
+=head2 Preparing our app
+
+For the following examples we need a simple Catalyst application. We will
+not use any templates and just a single controller.
+
+These lines will create all needed things and launch your app.
+
+    # ensure you have FormFu installed
+    $ cpanm HTML::FormFu
+    $ cpanm Catalyst::Controller::HTML::FormFu
+    
+    # create and launch app
+    $ catalyst.pl FormDemo
+    $ cd FormDemo
+    $ ./script/formdemo_create.pl controller Entity
+    $ ./script/formdemo_server -drf
+
+=head2 A simple form
+
+By convention, a form is located in a directory inside F<root/forms> matching
+the controller's namespace having the action's name plus an extension matching
+the chosen file format.
+
+In Perl syntax the form for the fields required above could look like this.
+Please create a file with this content and save it into F<root/forms/entity/edit.pl>.
+
+    {
+        indicator => 'save',
+        auto_fieldset => { legend => 'Edit Entity' },
+        elements => [
+            {
+                # in case we want to save the record back to a database
+                type    => 'Hidden',
+                name    => 'entity_id',
+            },
+            {
+                type    => 'Text',
+                name    => 'name',
+                label   => 'Name:',
+                # for later expansion, see below
+                stash   => { allow_admin_only => 1 },
+            },
+            {
+                type    => 'Textarea',
+                name    => 'comment',
+                label   => 'Comment:',
+                rows    => 5,
+            },
+            {
+                type    => 'Select',
+                name    => 'step_id',
+                label   => 'Status:',
+                options => [
+                    [ 0 => 'create' ],
+                    [ 1 => 'edit' ],
+                    [ 2 => 'check' ],
+                    [ 3 => 'finish' ],
+                ],
+                # for later expansion, see below
+                stash   => { allow_admin_only => 1 },
+            },
+            {
+                type    => 'Submit',
+                name    => 'save',
+                value   => 'save',
+            },
+        ],
+    }
+
+To get the form running in our application we need a controller that extends
+C<Catalyst::Controller::HTML::FormFu> and an action that loads the form. The
+C<FormConfig> attribute tells our action to load the form from the matching
+path. If you plan to organize your forms in a different directory layout, you
+may add the relative path as an argument to the attribute like
+C<FormConfig('directory/file.pl')>. Please read
+L<Catalyst::Controller::HTML::FormFu|https://metacpan.org/module/Catalyst::Controller::HTML::FormFu>
+for the glory details.
+
+    package FormDemo::Controller::Entity;
+    use Moose;
+    BEGIN { extends 'Catalyst::Controller::HTML::FormFu' }
+    
+    sub begin :Private {
+        my ($self, $c) = @_;
+        
+        # simulate admin switch using a GET parameter
+        if ($c->req->params->{user_is_admin}) {
+            $c->stash->{user_is_admin} = 1;
+        }
+    }
+    
+    sub edit :Local :FormConfig {
+        my ($self, $c) = @_;
+        
+        my $form = $c->stash->{form};
+        
+        # simulate a database lookup
+        $form->default_values({
+            entity_id => 42,
+            name      => 'My Entity',
+            comment   => 'The quick brown fox jumps over the lazy dog',
+            step_id   => 1,
+        });
+        
+        $c->res->body($form->render);
+    }
+    
+    1;
+
+Now, point your browser to your app and you will see a form (well, this
+screenshot has some CSS applied, but this is not the point).
+
+### TODO: screen shot (admin_screen.png)
+
+=head2 Manipulating forms the hard way
+
+HTML::FormFu offers methods for traversing the form's fields,
+searching form elements by various criteria as well as inserting, modifying
+and removing form elements. Doing lots of manipulations can lead to
+hard-to-maintain code. You will find a complete explanation of all available
+methods in L<HTML::FormFu|https://metacpan.org/module/Catalyst::Controller::HTML::FormFu>.
+If your code exceeds a few lines or will contain repeated sequences please
+think about using a plugin for the manipulations.
+
+=head2 Using a Plugin
+
+To get a plugin running, you could either add a C<plugins> key
+to every form you like to get enriched by one or more plugins. However, this
+may lead to many repetitions. If a plugin is required for every form you
+plan to use, it may get added inside your config. Here is an example configuration
+in Perl syntax:
+
+    'Controller::HTML::FormFu' => {
+        constructor => {
+            plugins => [ 'ManipulateFields' ],
+        },
+    },
+
+For the purpose we intend to do, we need to find a space for storing additional
+information into every single form field. HTML::FormFu offers two places
+for this: C<attributes> and C<stash>. Each of both places can be used in
+a form definition and queried or modified with the traversal API. If you plan
+to use attributes, prepending an attribute-key with "data-" is nice in order
+to maintain your HTML valid instead of inventing phantasy-HTML-attributes or
+accidentally overwriting existing attributes. For this demonstration we are
+using the stash.
+
+Let us add a simple plugin which reads thru every form element, isolates
+stash keys and tries to call a method with the stash key's name if
+available. 
+
+    package HTML::FormFu::Plugin::ManipulateFields;
+    use Moose;
+    extends 'HTML::FormFu::Plugin';
+    
+    sub pre_process {
+        my $self = shift;
+
+        my $form  = $self->form;
+        my $c     = $form->stash->{context};
+
+        foreach my $element ( @{ $form->get_all_elements } ) {
+            $self->$_($c, $form, $element, delete $element->stash->{$_})
+                for grep { $self->can($_) }
+                    keys %{$element->stash};
+        }
+    }
+    
+    sub allow_admin_only {
+        my ($self, $c, $form, $element) = @_;
+        
+        return if $c->stash->{user_is_admin};
+        
+        $element->attributes->{readonly} = 'readonly';
+        $element->attributes->{disabled} = 'disabled';
+        
+        # if you plan to use HTML::FormFu::Model::DBIC, also add:
+        # $element->model_config->{read_only} = 1;
+    }
+    
+    1;
+
+### TODO: screen shot (user_screen.png)
+
+=head2 Alternatives
+
+another place to "hide" the method names to call inside your plugin is
+the C<attributes> attribute every field provides. A field might look like
+
+    {
+        type => 'Text',
+        name => 'name',
+        label => 'Name:',
+        attributes => { 'data-allow-admin-only => 1 },
+    },
+
+The prefix "data-" was chosen to generate a valid HTML and to prevent collisions
+with other HTML attributes of the generated HTML markup.
+
+Possible expansions could be to namespace the methods by using certain parts
+of the name as part of a class, others as the methods. Or you may allow
+extending your plugin by using tools like
+L<Module::Pluggable|https://metacpan.org/module/Module::Pluggable>.
+
+=head2 What to do next?
+
+If you think about different permissions, states, situations or flags sitting
+at your records you will easily find situations that will quickly become
+candidates for form manipulations. Here are some examples
+
+=over
+
+=item display accounting fields for your staff
+
+=item hide prices from non-privileged people
+
+=item show additional fields for your admins
+
+=item add hint messages for certain users
+
+=item construct context-dependant selectbox options
+
+=item add a captcha for anonymous users
+
+=back
+
+Just a small list of raw ideas. Would be great to read a blog entry containing
+more.
+
+=head2 Caveats
+
+A developer is free to call C<<< $form->process() >>> as often as he likes.
+Sometimes these calls are necessary after certain kinds of form manipulation.
+Every call to C<process> will trigger the plugin logic above again. If the
+logic you apply to your form is expensive in terms of CPU or processing time
+or destructive in any kind, you might consider to prevent multiple executions.
+This is the reason why the name of method getting called is removed from the
+form element's stash in the code examples above.
+
+=head1 For More Information
+
+L<Catalyst::Controller::HTML::FormFu|https://metacpan.org/module/Catalyst::Controller::HTML::FormFu>
+
+=head1 Summary
+
+HTML::FormFu provides a clean way to operate with forms. If you use plugins
+to bend your forms to the shape you need, you will keep the form handling
+as simple as it is and can focus on the important parts of your app.
+
+=head1 Author
+
+Wolfgang Kinkeldei E<lt>wolfgang [at] kinkeldei [dot] deE<gt>
+
+=cut
