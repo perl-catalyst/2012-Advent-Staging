@@ -1,0 +1,168 @@
+=head1 BAKING A SIMPLE MODEL FROM AN EXISTING CLASS
+
+=head1 OVERVIEW
+
+Let's assume you already have production-tested code for implementing a given
+task. You like to get this code included into a Catalyst application. This is
+where
+L<Catalyst::Model::Adaptor|https://metacpan.org/release/Catalyst-Model-Adaptor>
+comes into play. It offers the glue needed to make such an integration easy
+and allows reuse of existing code.
+
+For demonstration purposes we are building our model based on a simple
+job queue class.
+
+=head1 Preparing our job queue
+
+First, we look into our job queue class. Admittedly, this one is very simple
+but offers the basic things a job queue should do: appending and retrieving
+jobs. For sake of simplicity we do not consider concurrency problems and
+omit error handling here.
+
+    package JobQueue;
+    use Moose;
+    use MooseX::Types::Path::Class;
+    use YAML qw(DumpFile LoadFile);
+    
+    has dir => (
+        is       => 'ro',
+        isa      => 'Path::Class::Dir',
+        required => 1,
+        coerce   => 1,
+    );
+    
+    sub append_job {
+        my ($self, $data) = @_;
+        
+        my ($fh, $filename) = $self->dir->tempfile(time . '-XXXXX');
+        DumpFile $filename, $data;
+    }
+    
+    sub next_job {
+        my $self = shift;
+        
+        my ($job_file) = $self->dir->children
+            or return;
+        
+        my $data = LoadFile($job_file);
+        $job_file->remove;
+        
+        return $data;
+    }
+    
+    1;
+
+The package above is completely independent of Catalyst and can get used
+everywhere. It acts as a placeholder for a class you might like to use.
+
+=head1 Creating a simple application
+
+    $ catalyst.pl ModelDemo
+    $ cd ModelDemo
+
+=head1 Integration
+
+Create a model class:
+
+    package ModelDemo::Model::JobQ;
+    use Moose;
+    extends 'Catalyst::Model::Adaptor';
+    
+    # nothing more needed. Everything is inside JobQueue.pm :-)
+    
+    1;
+
+and add the following things to your config section of F<ModelDemo.pm>. Please
+note that you have to specify the package name and every required attribute
+for instantiation of an object. Otherwise the instantiation will throw an
+exception.
+
+    'Model::JobQ' => {
+        class => 'JobQueue',
+        args  => {
+            dir => '/tmp',
+        },
+    },
+
+Inside your Catalyst application you can use your model just as you are used
+to handle other models. The model instantiates an object of the destination
+package and returns it. Thus, everything being possible with the
+original object is possible with your "model".
+
+    $c->model('JobQ')->append_job( { whatever => 'foo' } );
+
+There is still one thing we could improve: getting rid of the hard coded path
+to the job directory. Think about having a dev-, a staging- and a production
+website which might reside at different locations. And consider the different
+locations of the application at the various developers working with you.
+Setting a different path every time is boring and error-prone.
+
+If you decide to use the
+L<ConfigLoader|https://metacpan.org/release/Catalyst-Plugin-ConfigLoader>
+plugin, you may create a configuration file (here F<modeldemo.pl> in the root
+directory of your app). The location of the config file is customizable via
+environment variables if you like to change the location.
+
+One of the great features of ConfigLoader is that it substitutes some
+predefined patterns wrapped in double underscore characters before
+interpreting the config file's content. This allows to specify e.g. paths
+relative to the application's main directory. Please note that you will
+have to create the directories yourself.
+
+    # config file "modeldemo.pl"
+    {
+        name => 'ModelDemo',
+        
+        'Model::JobQ' => {
+            class => 'JobQueue',
+            args  => {
+                dir => '__path_to(root/jobs)__',
+            },
+        },
+    }
+
+=head1 For More Information
+
+L<Catalyst::Model::Adaptor|https://metacpan.org/release/Catalyst-Model-Adaptor>
+offers three different scopes for the objects getting instantiated.
+
+=over
+
+=item Catalyst::Model::Adaptor
+
+instantiates an object at application launch time. The object persists the
+runtime of the application.
+
+=item Catalyst::Model::Factory
+
+instantiates an object every time you request the object.
+
+=item Catalyst::Model::Factory::PerRequest
+
+instantiates an object once per request.
+
+=back
+
+Two earlier Catalyst advent calendars had similar recipes:
+
+=over
+
+=item
+
+L<2007-24|http://www.catalystframework.org/calendar/2007/24>
+
+=item 
+
+L<2009-18|http://www.catalystframework.org/calendar/2009/18>
+
+=back
+
+=head1 Summary
+
+Existing mature classes may easily integrated into an existing Catalyst
+Application with the aid of
+L<Catalyst::Model::Adaptor|https://metacpan.org/release/Catalyst-Model-Adaptor>.
+
+=head1 Author
+
+Wolfgang Kinkeldei E<lt>wolfgang [at] kinkeldei [dot] deE<gt>
