@@ -1,0 +1,251 @@
+=head1 SCALING IMAGES ON DEMAND
+
+=head1 OVERVIEW
+
+If a website gets its material from various sources or must display
+variable-sized items in a uniform way you will need some kind of image scaler.
+Sending the high resolution images to the browser is not wise and consumes too
+much bandwidth. Scaling images in advance to every required size could be a
+way that works if you have enough resources for this preparation.
+
+Assuming your website does not have too much traffic, you might think about
+scaling images on-demand and keeping the scaled version for future requests.
+This makes you flexible, saves bandwidth on transmission and only consumes
+valuable CPU cycles on initial requests for a given image and size.
+
+When I first came across a request for scaling images, I could not find a
+library that suited my needs. So I decided to roll my own. I called it
+L<Catalyst::Controller::Imager|https://metacpan.org/module/Catalyst::Controller::Imager>
+as it internally uses L<Imager|https://metacpan.org/module/Imager> as its engine.
+
+Today's article will show some tricks you might do with this little module.
+
+=head1 Prepare your system
+
+Imager uses several libraries written in C for reading, manipulating and
+writing images. Depending on the formats you like to support more or less
+libraries are needed. Imager is very flexible in its configuration. Simply
+run F<Makefile.PL> by hand after downloading Imager and you will get an idea
+of what I am talking about...
+
+For a typical web scenario you will probably need to install C<libgif>,
+C<libpng>, C<libjpeg> and C<libtif>. The packages for Ubuntu Linux are named
+C<libgif4>, C<libpng12-0>, C<libjpeg8> and C<libtiff4>. For compiling Imager
+you will have to install the "-dev" versions of these libs as well.
+
+For Mac OS-X I recommend using L<MacPorts|http://www.macports.org> and
+installing the packages C<jpeg>, C<giflib@4.2.1+no_x11>, C<tiff> and C<libpng>.
+The command you will need to make a friend is named F<port>.
+
+After that, C<Imager> and C<Catalyst::Controller::Imager> should install
+without any complains.
+
+=head1 Create a simple app
+
+    $ catalyst.pl ImageDemo
+    $ cd ImageDemo
+    $ ./script/imagedemo_create.pl controller Image Imager
+    $ mkdir root/cache
+    $ ./script/imagedemo_server.pl -d -r -f
+
+And for testing, please put some images of any size into F<root/static/images>
+
+=head1 Explore the default options
+
+Assumed you have an original image located in F<root/static/images/house.jpg>
+you can try the following URLs:
+
+=over
+
+=item the original image:
+
+http://localhost:3000/static/images/house.jpg
+
+=item a thumbnail (80x80)
+
+http://localhost:3000/image/thumbnail/house.jpg
+
+=item width 100 pixels
+
+http://localhost:3000/image/w-100/house.jpg
+
+=item height 100 pixels
+
+http://localhost:3000/image/h-100/house.jpg
+
+=item height 10000 pixels
+
+http://localhost:3000/image/h-10000/house.jpg
+
+oops. we get an error. See Controller::Image in your app to find out why
+
+=item width 200 pixels and height 100 pixels
+
+http://localhost:3000/image/w-200-h-100/house.jpg
+
+=back
+
+=head1 Extending the logic behind the scenes
+
+Until now, you did not touch the auto-generated Controller::Imager in your
+application. Every URL you called could get serviced from the logic of the
+base class.
+
+The whole logic inside the base class operates in these stages:
+
+=over
+
+=item collecting
+
+The URL is split into parts. The first part after the namespace contains a
+dash-separated list of keywords with optional parameters. Several keywords
+with their parameters may exist and are again separated by a single dash.
+
+For every keyword a method named like the keyword prefixed by C<want_> must
+exist.
+
+During URL traversal, all C<want_xxx> methods are called. Each of these
+methods may add things to stash variables, typically C<scale>.
+
+=item before_scale
+
+if the array-ref C<$c->stash->{before_scale}> contains action names, a
+forward to every of these actions is performed.
+
+=item scaling
+
+The C<scale> stash variable contains a hash-ref with options for scaling, like
+C<w>, C<h> and C<mode>. Depending on the mode, a method named C<scale_xxx> is
+called to execute the desired scaling. The default is to call C<scale_min>.
+In this case the minimum scaling factor is chosen which will ensure that the
+resulting image is not bigger than requested.
+
+=item after_scale
+
+if the array-ref C<$c->stash->{after_scale}> contains action names, a
+forward to every of these actions is performed.
+
+=item delivery
+
+the image is converted to the desired format (based on the extension of the
+URL) and delivered to the client.
+
+=back
+
+If you like to support an URI like C</image/small/house.jpg>, simply implement a
+method named C<want_small> with an ":Args(0)" attribute that puts the required
+scaling options into a stash variable.
+
+    sub want_small :Action :Args(0) {
+        my ($self, $c) = @_;
+        
+        # set the desired scaling.
+        # fill means scaling by minimum factor and filling the gaps in order
+        # to get an image of the desired size
+        $c->stash(scale => {w => 100, h => 80, mode => 'fill'});
+    }
+
+If you change the C<mode> to 'fit', 'min', 'max' and 'fill' you will quickly
+see the difference between the various modes. If you need another mode,
+you may create one.
+
+
+For getting a URI C</image/foo-42/house.jpg>, you might guess that a method
+named C<want_foo> with ":Args(1)" is required. Simple. Here we also define
+and implement a scaling method of our own which also blurs the image. Actually
+using the C<after_scale> hook would be more wise but as the example below
+should demonstrate how to create a scaler action.
+
+    sub want_foo :Action :Args(1) {
+        my ($self, $c, $mode) = @_;
+        
+        $c->stash(scale => {w => $mode * 4, h => $mode * 3, mode => 'blur'});
+    }
+
+    sub scale_blur :Action {
+        my ($self, $c) = @_;
+        
+        my $scale = $c->stash->{scale};
+        my %scale_options = (
+            ($scale->{w} ? (xpixels => $scale->{w}) : ()),
+            ($scale->{h} ? (ypixels => $scale->{h}) : ())
+        );
+        
+        my $scaled_image = keys %scale_options
+            ? $c->stash->{image}->scale(%scale_options, type => 'min')
+            : $c->stash->{image};
+        
+        my $scaled_and_blurred_image = $scaled_image->filter(
+            type   => 'gaussian',
+            stddev => 5,
+        );
+        
+        $c->stash->{image} = $scaled_and_blurred_image;
+    }
+
+If you created a F<root/cache> directory you may enable the caching option 
+in the config section. After that you will see that it then contains
+all images you requested afterwards.
+
+Simply change the cache_dir entry in the config section
+
+    __PACKAGE__->config(
+        # the directory to look for files (inside root)
+        # defaults to 'static/images'
+        #root_dir => 'static/images',
+
+        # specify a cache dir if caching is wanted
+        # defaults to no caching (more expensive)
+        cache_dir => 'root/cache',
+        
+        # ... nothing to change below
+
+As soon as you enabled the caching, you will immediately feel that reloading
+the same image becomes much faster. However, changing scaling options will
+need to clear the cache.
+
+You could raise the performance further if you add a redirect rule into your
+frontend Webserver's configuration that delivers a cached image when available
+and only falls back to your Catalyst Application if no cached image is present.
+
+=head1 See also
+
+L<Catalyst::View::GD::Thumbnail|https://metacpan.org/module/Catalyst::View::GD::Thumbnail>
+
+L<Catalyst::View::Thumbnail|https://metacpan.org/module/Catalyst::View::Thumbnail>
+
+L<Catalyst::View::Thumbnail::Simple|https://metacpan.org/module/Catalyst::View::Thumbnail::Simple>
+
+L<Catalyst::Plugin::Upload::Image::Magick::Thumbnail|https://metacpan.org/module/Catalyst::Plugin::Upload::Image::Magick::Thumbnail>
+
+the fastest scaler I have ever seen for JPEG images:
+
+L<Image::Epeg|https://metacpan.org/module/Image::Epeg>
+
+These earlier Catalyst advent calendars had similar recipes:
+
+=over
+
+=item Gearman
+
+L<2010-07|http://www.catalystframework.org/calendar/2010/7>
+
+=item Imager
+
+L<2008-05|http://www.catalystframework.org/calendar/2008/5>
+
+=back
+
+=head1 Summary
+
+With this simple module, image manipulations can get encapsulated into a
+single controller. No additional view is needed, the controller also delivers
+the scaled image data to the browser. By extending the logic that drives
+the scaling process you can get nice URLs with more or less complicated
+logic behind the scenes. Caching allows fast redelivery of already requested
+images. By leveraging the powerful operations Imager offers, you can do a lot
+of cool things.
+
+=head1 Author
+
+Wolfgang Kinkeldei E<lt>wolfgang [at] kinkeldei [dot] deE<gt>
