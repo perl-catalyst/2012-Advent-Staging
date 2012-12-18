@@ -59,7 +59,7 @@ Now you have two choices:
 
 =item using a long URL
 
-If you have a countable number of JavsScript (or CSS) files, you may put
+If you have a countable number of JavaScript (or CSS) files, you may put
 them flat into the asset directory. Then, construct an URL listing all
 files you like to combine (with or without the .js extension) into one
 long pseudo-path. This will trigger the loading of every single file
