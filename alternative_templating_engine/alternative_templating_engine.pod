@@ -1,0 +1,188 @@
+=head1 An alternative View Engine
+
+Do you remember the good old times where CGI scripts ware scattered with
+heredocs and print statements containing snippets of HTML? Some
+time passed by since then and in the meantime every Framework offers some
+ways for generating HTML using a View layer.
+
+When looking at the basic principles behind the various View implementations
+you can find various alternative approaches:
+
+=over
+
+=item pure HTML
+
+Some view engines are using pure HTML files without any extra content. The
+HTML markup might contain placeholder text or simply is empty. Generating the
+HTML for delivery to the browser means gluing the predefined template files
+together after filling certain parts with meaningful content. Another option
+could be repeating or deleting certain blocks and filling in some content
+during the repetition process.
+
+Working with engines like these typically is very much like using jQuery on
+the browser.
+
+Examples for view engines of this kind are:
+
+L<Catalyst::View::HTML::Zoom|https://metacpan.org/module/Catalyst::View::HTML::Zoom>,
+L<Template::Flute|https://metacpan.org/module/Template::Flute>
+
+=item mixed HTML and processing instructions
+
+Most templating engines work like this. Some kind of extra language is available
+to allow conditions, repetitions or filling-in content.
+
+Example for a view engine of this kind: 
+L<Catalyst::View::TT|https://metacpan.org/module/Catalyst::View::TT>,
+L<Catalyst::View::XSlate|https://metacpan.org/module/Catalyst::View::Xslate>
+
+=item different syntax to HTML
+
+Instead of typing in HTML syntax directly, some Engines offer a different
+syntax (or a DSL if you like) for generating HTML output. This is what we
+observe today.
+
+Examples for view engines of this kind are:
+L<Catalyst::View::Template::Declare|https://metacpan.org/module/Catalyst::View::Template::Declare>, 
+L<Markapl|https://metacpan.org/module/Markapl>, 
+L<Catalyst::View::ByCode|https://metacpan.org/module/Catalyst::View::ByCode>,
+L<Catalyst::View::Haml|https://metacpan.org/module/Catalyst::View::Haml>,
+L<Template::Caribou|https://metacpan.org/module/Template::Caribou>
+
+=item another language exporting to HTML
+
+Finally one could use a completely different markup and generate HTML from it.
+Examples could be
+L<Text::Markdown|https://metacpan.org/module/Text::Markdown>, POD as well as
+any other type of widget library that might generate HTML from its content.
+
+=back
+
+Today, we will look into Catalyst::View::ByCode.
+
+=head1 What is Catalyst::View::ByCode?
+
+Basically, Catalyst::View::ByCode offers a subroutine for every known HTML Tag.
+The subs are available inside every template. The only exceptions are tags
+whose names would otherwise collide with Perl's built-in subs (like "s", "tr")
+or would interfere with Moose (like "meta"). These subs have names
+different from the HTML-Tag. Typically all Template files reside an a directory
+named "bycode" inside the "root" directory. The template name is guessed by
+concatenating the Controller's namespace and the action name. All template
+files are pure perl and they are compiled during their first execution by
+wrapping the file contents with some extra things the template author does
+not like to write every time. Nothing you need to worry.
+
+A templating block is added to a file with the "template" keyword followed
+by a code reference that contains the template content.
+
+    # a file inside 'root/bycode/...'
+    
+    template {
+        # your markup goes here
+    };
+
+Additionally, L<Devel::Declare|https://metacpan.org/module/Devel::Declare>
+acts in the background and mangles the template code at compile time to allow
+a nicer syntax that is closer to HTML than regular Perl syntax would be.
+
+    div some_id.hidden(foo => 'bar') { 'some content' };
+
+would generate this HTML:
+
+    <div id="some_id" class="hidden" foo="bar">some content</div>
+
+The content-part of every HTML-Tag is a code reference whose last expression
+is added to the content of the Tag as HTML-escaped text.
+
+If there is more text to write, two predefined globs may get used.
+
+    div {
+        # unescaped text -- be careful
+        print RAW '<?foo bar="42" ?>';
+        
+        # some other tag
+        strong { 'Santa is coming soon' };
+        
+        # escaped text
+        print OUT '{ foo => 42 }';
+    };
+
+And there is an idea borrowed from Template::Declare: modifiable attributes
+with some magic subroutines usable inside a Tag's code-ref.
+
+    div {
+        attr foo => 42;
+        id "element_$i";
+        class '+visible' if $visible;
+        
+        ...
+    };
+
+=head1 Building your own Tag-like things
+
+So far, we only used the standard HTML Tags for creating our markup. However,
+every website has common building blocks. Would be great if we could use a
+similar syntax for creating such blocks. This is what the "block" keyword
+is for.
+
+    # build a block
+    block info_box {
+        # read attributes from definition
+        my $head = attr('head') // 'headline';
+        my $foo = attr('foo')   // 'default_value';
+        
+        div.some_class {
+            h3 { $head };
+            div.content {
+                # insert markup from callee
+                block_content;
+            };
+        };
+    };
+    
+    # use this block:
+    info_box(head => 'Some Title') {
+        # box content goes here
+    };
+
+=head1 Construct your scaffolding
+
+Every page callable via an URL must provide a structure in order to be
+valid HTML. Repeating such a structure every time must be avoided.
+
+A specially named template file, "wrapper.pl" is called before rendering the
+template in question. This behavior can be changed when setting the "wrapper"
+stash variable to some other file name or undef for having no wrapping behavior
+at all. The special keyword "yield" executes the template requested and inserts
+the generated markup at this very position.
+
+    # file "wrapper.pl"
+    html {
+        head { ... };
+        body {
+            # TODO: header
+            # TODO: navigation
+            yield;
+            # TODO: side bars
+            # TODO: footer
+        };
+    };
+
+=head1 Conclusion
+
+There are many options for choosing a templating engine. There is no "best"
+engine available. Choose your engine based on the requirements of your
+workflow and the skills and tools available by the people involved. If you do
+HTML-coding by hand, an engine like Catalyst::View::ByCode may be interesting
+for you. The win is a guarantee to generate valid HTML code and properly
+escaped Text with high speed. On the other hand, if you get HTML Templates
+from designers, it would be a bad choice.
+
+=head1 See also
+
+L<Catalyst::View::ByCode|https://metacpan.org/module/Catalyst::View::ByCode>
+
+=head1 Author
+
+Wolfgang Kinkeldei E<lt>wolfgang [at] kinkeldei [dot] deE<gt>
