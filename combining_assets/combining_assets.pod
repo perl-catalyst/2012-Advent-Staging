@@ -1,0 +1,137 @@
+=head1 Combining assets
+
+=head1 Overview
+
+How do you organize your assets like JavaScript or CSS? Does every request
+trigger several dozen additional requests needed for loading all of these
+resources? Do you often forget to run your static-CSS-builder script prior
+to viewing your local web application? Or do you hate to update something
+in the middle of your handcrafted jQuery-and-all-the-other-JS file?
+
+=head1 Understanding the browser
+
+When looking at the typical "waterfall" inside your favourite browser's
+developer tools you may have observed that JavaScript and CSS assets start loading
+after the HTML content got loaded to the point where the E<lt>scriptE<gt> or
+E<lt>linkE<gt> tags reside. Some browsers even start loading these assets
+after the entire HTML markup has been fully loaded. Depending on the browser
+the loading uses a maximum number of parallel requests. In order to keep the
+loading time small one would like to minimize the amount of data to get
+transferred and the number of requests needed to load all the assets.
+
+On the other hand, maintaining small well-named files each being responsible
+for a single task is much easier to handle. Specifying dependencies is very
+simple when looking at small files but can be hard to decide when facing a
+huge file.
+
+These requirements quickly lead to the temptation to express dependencies
+in a data structure (all file names are randomly chosen):
+
+    my %dependency_for = (
+        'site.js'       => [ qw(uploader.js forms.js) ],
+        'uploader.js'   => [ qw(jquery.js) ],
+        'forms.js'      => [ qw(jquery_ui.js) ],
+        'jquery_ui.js'  => [ qw(jquery.js) ],
+    );
+
+It would be great if you could point your browser to
+http://yourdomain.tld/js/site.js and could get back a stream full of all
+JavaScript needed to run your site.js and have all dependencies resolved.
+
+=head1 Combining assets
+
+Fortunately, there is a helper module on CPAN:
+L<Catalyst::Controller::Combine|https://metacpan.org/module/Catalyst::Controller::Combine>
+
+Ater installation visit your favourite shell and fire
+
+    script/myapp_create.pl controller Js Combine
+
+for creating a "Js" controller (having the expected namespace "js") and consuming
+all URLs starting with F</js/>. By default, it expects its files to reside in
+F<root/static/js>. Simply create this directory unless already present and
+populate it with some JavaScript files. CSS is very similar and just differs
+by the name and path chosen.
+
+Now you have two choices:
+
+=over
+
+=item using a long URL
+
+If you have a countable number of JavaScript (or CSS) files, you may put
+them flat into the asset directory. Then, construct an URL listing all
+files you like to combine (with or without the .js extension) into one
+long pseudo-path. This will trigger the loading of every single file
+being listed in the URL and your browser will receive a stream with all your
+assets combined. 
+
+A URL might look like: L<http://yoursite.tld/js/jquery/uploader/forms/site.js>
+
+However, everybody can follow your effort, directly see your dependencies (or
+load the individual files directly) and you will have to modify this URL at a
+place different from your combining controller. So you might decide not to use
+this mode.
+
+=item specifying dependencies
+
+In order to keep your URLs simple you can specify dependencies like the
+hash listed above. Edit your "Js" controller and you will see a sample
+config entry you might modify to your needs.
+
+    __PACKAGE__->config(
+        depend => {
+            'site.js'       => [ qw(uploader.js forms.js) ],
+            'uploader.js'   => [ qw(jquery.js) ],
+            'forms.js'      => [ qw(jquery_ui.js) ],
+            'jquery_ui.js'  => [ qw(jquery.js) ],
+        },
+    );
+
+Now you may point your browser to L<http://yoursite.tld/js/site.js> and you
+will receive the expected stream with all specified dependencies resolved.
+
+=back
+
+=head1 Minification
+
+There are two great modules on CPAN:
+L<JavaScript::Minifier::XS|https://metacpan.org/module/JavaScript::Minifier::XS> and
+L<CSS::Minifier::XS|https://metacpan.org/module/CSS::Minifier::XS>.
+
+Both offer a sub named C<minify> that returns the minified version of its
+argument. If you simply use one of both modules in your Controller, the 
+combined asset will automatically get minified.
+
+If you plan to use or create a minifier of your own, simply add a C<minify>
+method that will automatically get invoked when present.
+
+=head1 Performance
+
+Usually, performance is not an issue if you just combine assets and minify
+them. If you encounter performance bottlenecks or plan to use a costly processor
+like L<sass|http://sass-lang.com> for processing your asset, you may consider
+to generate your assets by loading the URLs immediately after deployment and
+save the generated asset files at a location where your web server may
+be able to deliver them statically.
+
+A further improvement could be to gzip your response which is an option
+of your frontend web server or can be enabled with the right Plack middleware.
+
+=head1 See also
+
+L<Catalyst::Controller::Combine|https://metacpan.org/module/Catalyst::Controller::Combine>
+
+=head1 Summary
+
+With a simple helper controller you may keep your JavaScript or CSS URLs
+simple but enable delivering a complete resource with one request to your
+visitor's browsers while still keeping your assets maintainable. There
+is nothing you can forget during your development and no other tool you will
+have to invoke.
+
+=head1 Author
+
+Wolfgang Kinkeldei E<lt>wolfgang [at] kinkeldei [dot] deE<gt>
+
+=cut
